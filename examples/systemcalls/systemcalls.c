@@ -1,5 +1,10 @@
 #include "systemcalls.h"
 
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -17,7 +22,18 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
 
-    return true;
+    int status = system(cmd);
+
+    /* system() itself failed */
+    if(status == -1){
+        return false;
+    }
+
+    /* Command exited normally with exit status 0 */
+    if(WIFEXITED(status) && (WEXITSTATUS(status) == 0)){
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -47,7 +63,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    // command[count] = command[count];
 
 /*
  * TODO:
@@ -58,10 +74,36 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    /* crate a child process*/
+    pid_t pid = fork();
+    if(pid == -1){
+        printf("fork failed\n");
+        va_end(args);
+        return false;
+    }
+
+    if(pid == 0){
+        execv(command[0], command);
+
+        /* Reached only if execv() fails */
+        exit(EXIT_FAILURE);
+    }
+
+    int status;
+    /* Parent waits for the child */
+    if(waitpid(pid, &status, 0) == -1){
+        va_end(args);
+        return false;
+    }
 
     va_end(args);
 
-    return true;
+    /* Child exited normally and returned success */
+    if(WIFEXITED(status) && (WEXITSTATUS(status) == 0)){
+        return true;
+    }
+    
+    return false;
 }
 
 /**
@@ -92,8 +134,44 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    /* Create child process */
+    pid_t pid = fork();
+    if(pid == -1){
+        va_end(args);
+        return false;
+    }
 
+    if(pid == 0){
+        /* Open output file */
+        int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if(fd == -1){
+            exit(EXIT_FAILURE);
+        }
+
+        /* Redirect stdout to output file */
+        dup2(fd, STDOUT_FILENO);
+
+        /* Close original file descriptor */
+        close(fd);
+
+        /* Execute command */
+        execv(command[0], command);
+
+        /* Reached only if execv() fails */
+        exit(EXIT_FAILURE);
+    }
+
+    int status;
+    if(waitpid(pid, &status, 0) == -1){
+        va_end(args);
+        return false;
+    }
     va_end(args);
 
-    return true;
+    /* Child exited normally and returned success */
+    if(WIFEXITED(status) && (WEXITSTATUS(status) == 0)){
+        return true;
+    }
+
+    return false;
 }
